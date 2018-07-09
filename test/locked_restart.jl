@@ -21,6 +21,7 @@ end
     for T in (Float64, Complex128)
         A = matrix_with_three_clusters(T, 100)
         ε = 1e-6
+        Λ = sort!(eigvals(A), by=abs, rev=true)
 
         # Get the Arnoldi relation after seven restarts.
         partial_schur = restarted_arnoldi(A, min, max, min, eps(real(T)), 10)
@@ -48,6 +49,12 @@ end
             @test r ≤ ε
         end
 
+        # Compare the eigenvalues to those of the original matrix A.
+        sort!(Λ₁, by=abs, rev= true)
+        for i = 1 : length(Λ₁)
+            @test Λ₁[i] ≈ Λ[i]
+        end
+
         # The eigenvalues 4 .. 20 are the dominant eigenvalues of the matrix (I-V1V1')A(I-V1V1')
         Λ₂, Y₂ = eig(R[4:20, 4:20])
         X₂ = V₂ * Y₂
@@ -59,6 +66,12 @@ end
             r .-= V₁ * (V₁' * r)
             r .-= V₁ * (V₁' * r)
             @test norm(r) ≤ ε
+        end
+
+        # Compare the eigenvalues to those of the original matrix A.
+        sort!(Λ₂, by=abs, rev= true)
+        for i = 1 : length(Λ₂)
+            @test Λ₂[i] ≈ Λ[3 + i]
         end
     end
         # Test the orthonormality of V
