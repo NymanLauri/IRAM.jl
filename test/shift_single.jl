@@ -37,8 +37,8 @@ end
     # Real arithmetic
     for i = 1 : 50
         H, λs, μ = generate_real_H_with_real_eigs(n, Float64)
-        Q = Matrix{Float64}(I, n, n)
-        # H_copy = copy(H)
+        Q = Matrix{Float64}(I, n+1, n+1)
+        H_copy = copy(H)
 
         single_shift!(H, 1, n, μ, Q)
 
@@ -47,6 +47,9 @@ end
 
         # Test whether the full matrix remains Hessenberg.
         @test is_hessenberg(H)
+
+        # Test whether relation " H_prev * Q = Q * H_next " holds
+        @test norm(H_copy * Q[1:n,1:n-1] - Q[1:n+1,1:n] * H[1:n,1:n-1]) < 1e-6
     end
 
     # Complex arithmethic
@@ -65,6 +68,5 @@ end
 
         # Test whether relation " H_prev * Q = Q * H_next " holds
         @test norm(H_copy * Q[1:n,1:n-1] - Q[1:n+1,1:n] * H[1:n,1:n-1]) < 1e-6
-        @test norm(Q[1:n,1:n-1]' * H_copy[1:n,1:n] * Q[1:n,1:n-1] - H[1:n-1,1:n-1]) < 1e-6
     end
 end

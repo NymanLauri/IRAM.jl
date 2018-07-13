@@ -4,10 +4,10 @@ using LinearAlgebra: givensAlgorithm
 Shrink the dimension of Krylov subspace from `max` to `min` using shifted QR,
 where the Schur vectors corresponding to smallest eigenvalues are removed.
 """
-function implicit_restart!(arnoldi::Arnoldi{T}, λs, min = 5, max = 30, active = 1, V_new = Matrix{T}(undef, size(arnoldi.V,1),min)) where {T<:Real}
+function implicit_restart!(A::AbstractMatrix, arnoldi::Arnoldi{T}, λs, min = 5, max = 30, active = 1, V_new = Matrix{T}(undef, size(arnoldi.V,1),min)) where {T<:Real}
     # Real arithmetic
     V, H = arnoldi.V, arnoldi.H
-    Q = Matrix{T}(I, max, max)
+    Q = Matrix{T}(I, max+1, max+1)
 
     m = max
 
@@ -19,10 +19,20 @@ function implicit_restart!(arnoldi::Arnoldi{T}, λs, min = 5, max = 30, active =
         else
             # Dont double shift past min
             # m == min + 1 && break
-
+            println("double shift")
             double_shift!(H, active, m, μ, Q)
             m -= 2 # incorrect
         end
+        V_temp = copy(V)
+        Vn = Matrix{Float64}(size(V,1), min-active)
+        mul!(Vn, view(V_temp, :, active:max), view(Q, active:max, active:min-1))
+        copyto!(view(V_temp, :, active:min-1), Vn)
+        # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
+        @show μ
+        @show norm(V_temp[:, 1 : min-1]' * A * V_temp[:, 1 : min-1] - H[1 : min-1, 1 : min-1])
+        a = sort!(eigvals(H[active:m,active:m]), by=abs)
+        # @show a[1:m-min+1]
+        @show norm(V' * V - I)
     end
 
     # Update & copy the Krylov basis
@@ -33,10 +43,10 @@ function implicit_restart!(arnoldi::Arnoldi{T}, λs, min = 5, max = 30, active =
     return m
 end
 
-function implicit_restart!(arnoldi::Arnoldi{T}, λs, min = 5, max = 30, active = 1, V_new = Matrix{T}(undef, size(arnoldi.V,1),min)) where {T}
+function implicit_restart!(A::AbstractMatrix, arnoldi::Arnoldi{T}, λs, min = 5, max = 30, active = 1, V_new = Matrix{T}(undef, size(arnoldi.V,1),min)) where {T}
     # Complex arithmetic
     V, H = arnoldi.V, arnoldi.H
-    Q = Matrix{T}(I, max, max)
+    Q = Matrix{T}(I, max+1, max+1)
 
     m = max
 
@@ -87,6 +97,10 @@ function single_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Tv, Q::Abstrac
     # Do the last Given's rotation by hand (assuming exact shifts!)
     @inbounds H[n, n - 1] = H[n + 1, n - 1]
     @inbounds H[n + 1, n - 1] = zero(Tv)
+
+    # Update Q with the last rotation
+    Q[1:n+1, n] .= 0
+    Q[n+1,n] = 1
 
     return H
 end

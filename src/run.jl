@@ -16,7 +16,8 @@ function restarted_arnoldi(A::AbstractMatrix{T}, min = 5, max = 30, nev = min, �
     active = 1
     V_prealloc = Matrix{T}(undef, n, min)
     for restarts = 1 : max_restarts
-
+        @show norm(arnoldi.V[:, 1 : min′]' * A * arnoldi.V[:, 1 : min′] - arnoldi.H[1 : min′, 1 : min′])
+        @show norm(triu(arnoldi.H[1:min′,1:min′],-1)-arnoldi.H[1:min′,1:min′])
         iterate_arnoldi!(A, arnoldi, min′ + 1 : max, h)
         
         # Compute the eigenvalues of the active part
@@ -24,8 +25,9 @@ function restarted_arnoldi(A::AbstractMatrix{T}, min = 5, max = 30, nev = min, �
         H_copy = copy(view(arnoldi.H, active:max, active:max))
         local_schurfact!(H_copy, Q)
         λs = sort!(eigvalues(H_copy), by = abs, rev = true)
+        # λs = sort!(eigvals(H_copy), by = abs, rev = true)
 
-        min′ = implicit_restart!(arnoldi, λs, min, max, active, V_prealloc)
+        min′ = implicit_restart!(A, arnoldi, λs, min, max, active, V_prealloc)
         new_active = detect_convergence!(view(arnoldi.H, active:min′+1, active:min′), ε)
         new_active += active - 1 
         if new_active > active + 1
@@ -34,7 +36,9 @@ function restarted_arnoldi(A::AbstractMatrix{T}, min = 5, max = 30, nev = min, �
         end
 
         active = new_active
-
+        
+        @show active
+        @show min′
         active > nev && break
     end
 
