@@ -8,31 +8,48 @@ function implicit_restart!(A::AbstractMatrix, arnoldi::Arnoldi{T}, λs, min = 5,
     # Real arithmetic
     V, H = arnoldi.V, arnoldi.H
     Q = Matrix{T}(I, max+1, max+1)
+    # Q_test = Matrix{Complex128}(I, max, max)
+    V_test = copy(V)
 
     m = max
 
     while m > min
         μ = λs[m-active+1]
         if imag(μ) == 0
-            single_shift!(H, active, m, real(μ), Q)
+            single_shift!(V_test, H, active, m, max, real(μ), Q)
             m -= 1
         else
             # Dont double shift past min
             # m == min + 1 && break
             println("double shift")
-            double_shift!(H, active, m, μ, Q)
+
+            V_temp = copy(V)
+            Vn = Matrix{Float64}(size(V,1), min-active)
+            mul!(Vn, view(V_temp, :, active:max), view(Q, active:max, active:min-1))
+            copyto!(view(V_temp, :, active:min-1), Vn)
+            # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
+            @show norm(V_temp[:, 1 : min-1]' * A * V_temp[:, 1 : min-1] - H[1 : min-1, 1 : min-1])
+
+            double_shift!(V_test, A, V, H, active, m, max, min, μ, Q)
+
+            V_temp = copy(V)
+            Vn = Matrix{Float64}(size(V,1), min-active)
+            mul!(Vn, view(V_temp, :, active:max), view(Q, active:max, active:min-1))
+            copyto!(view(V_temp, :, active:min-1), Vn)
+            @show norm(V_temp[:, 1 : min-1]' * A * V_temp[:, 1 : min-1] - H[1 : min-1, 1 : min-1])
+
             m -= 2 # incorrect
         end
-        V_temp = copy(V)
-        Vn = Matrix{Float64}(size(V,1), min-active)
-        mul!(Vn, view(V_temp, :, active:max), view(Q, active:max, active:min-1))
-        copyto!(view(V_temp, :, active:min-1), Vn)
-        # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
-        @show μ
-        @show norm(V_temp[:, 1 : min-1]' * A * V_temp[:, 1 : min-1] - H[1 : min-1, 1 : min-1])
-        a = sort!(eigvals(H[active:m,active:m]), by=abs)
-        # @show a[1:m-min+1]
-        @show norm(V' * V - I)
+        # V_temp = copy(V)
+        # Vn = Matrix{Float64}(size(V,1), min-active)
+        # mul!(Vn, view(V_temp, :, active:max), view(Q, active:max, active:min-1))
+        # copyto!(view(V_temp, :, active:min-1), Vn)
+        # # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
+        # @show μ
+        # @show norm(V_temp[:, 1 : min-1]' * A * V_temp[:, 1 : min-1] - H[1 : min-1, 1 : min-1])
+        # a = sort!(eigvals(H[active:m,active:m]), by=abs)
+        # # @show a[1:m-min+1]
+        # @show norm(V' * V - I)
     end
 
     # Update & copy the Krylov basis
@@ -67,10 +84,11 @@ end
 # """
 # Assume a Hessenberg matrix of size (n + 1) × n.
 # """
-function single_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Tv, Q::AbstractMatrix) where {Tv}
+function single_shift!(V_test::AbstractMatrix, H_whole::AbstractMatrix{Tv}, min, max, realmax, μ::Tv, Q::AbstractMatrix) where {Tv}
     # println("Single:")
     H = view(H_whole, min : max + 1, min : max)
     n = size(H, 2)
+    Q_test = Matrix{Complex128}(I, realmax, realmax)
 
     # Construct the first givens rotation that maps (H - μI)e₁ to a multiple of e₁
     @inbounds c, s = givensAlgorithm(H[1,1] - μ, H[2,1])
@@ -81,6 +99,7 @@ function single_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Tv, Q::Abstrac
 
     # Update Q
     rmul!(Q, givens)
+    rmul!(Q_test, givens)
 
     # Chase the bulge!
     @inbounds for i = 2 : n - 1
@@ -92,6 +111,7 @@ function single_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Tv, Q::Abstrac
         
         # Update Q
         rmul!(Q, givens)
+        rmul!(Q_test, givens)
     end
 
     # Do the last Given's rotation by hand (assuming exact shifts!)
@@ -102,12 +122,28 @@ function single_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Tv, Q::Abstrac
     Q[1:max+1, max] .= 0
     Q[max+1,max] = 1
 
+    tmp = copy(view(V_test, :, max + 1))
+    A_mul_B!(view(V_test, :, 1:max-1), copy(V_test[:, 1 : realmax]), Q_test[1:realmax, 1 : max-1])
+    copyto!(view(V_test, :, max), tmp)
+
     return H
 end
 
-function double_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Complex, Q::AbstractMatrix) where {Tv<:Real}
+function double_shift!(V_test::AbstractMatrix, A::AbstractMatrix{Tv}, V::AbstractMatrix{Tv}, H_whole::AbstractMatrix{Tv}, min, max, realmax, minim, μ::Complex, Q::AbstractMatrix) where {Tv<:Real}
     H = view(H_whole, min : max + 1, min : max)
+    H_copy = copy(H_whole)
+    # Q_copy = copy(Q)
+    Q_test = Matrix{Complex128}(I, realmax, realmax)
     n = size(H, 2)
+    @show n
+    # minim = realmax-10
+    V_temp = copy(V)
+    Vn = Matrix{Float64}(size(V,1), minim-min)
+    mul!(Vn, view(V_temp, :, min:max), view(Q, min:max, min:minim-1))
+    copyto!(view(V_temp, :, min:minim-1), Vn)
+    # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
+    # @show μ
+    @show norm(V_temp[:, 1 : minim-1]' * A * V_temp[:, 1 : minim-1] - H_whole[1 : minim-1, 1 : minim-1])
 
     # Compute the entries of (H - μ₂)(H - μ₁)e₁.
     @inbounds p₁ = abs2(μ) - 2 * real(μ) * H[1,1] + H[1,1] * H[1,1] + H[1,2] * H[2,1]
@@ -127,6 +163,18 @@ function double_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Complex, Q::Ab
     # Update Q
     rmul!(Q, G₁)
     rmul!(Q, G₂)
+
+    rmul!(Q_test, G₁)
+    rmul!(Q_test, G₂)
+
+    # minim = realmax-10
+    V_temp = copy(V)
+    Vn = Matrix{Float64}(size(V,1), minim-min)
+    mul!(Vn, view(V_temp, :, min:max), view(Q, min:max, min:minim-1))
+    copyto!(view(V_temp, :, min:minim-1), Vn)
+    # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
+    # @show μ
+    @show norm(V_temp[:, 1 : minim-1]' * A * V_temp[:, 1 : minim-1] - H_whole[1 : minim-1, 1 : minim-1])
 
     # Bulge chasing!
     @inbounds for i = 2 : n - 2
@@ -150,7 +198,30 @@ function double_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Complex, Q::Ab
         # Update Q
         rmul!(Q, G₁)
         rmul!(Q, G₂)
+
+        rmul!(Q_test, G₁)
+        rmul!(Q_test, G₂)
+
+        if n == 33
+        # realmax-10 happens to be the size after the implicit restart
+        # minim = realmax-10
+        V_temp = copy(V)
+        Vn = Matrix{Float64}(size(V,1), minim-min)
+        mul!(Vn, view(V_temp, :, min:max), view(Q, min:max, min:minim-1))
+        copyto!(view(V_temp, :, min:minim-1), Vn)
+        # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
+        # @show μ
+        # if norm(V_temp[:, 1 : minim-1]' * A * V_temp[:, 1 : minim-1] - H_whole[1 : minim-1, 1 : minim-1]) > 1e-6 && i < n-2
+            @show norm(V_temp[:, 1 : minim-1]' * A * V_temp[:, 1 : minim-1] - H_whole[1 : minim-1, 1 : minim-1])
+            # display()
+        # end
+        end
     end
+    
+    # Qv = Q_copy[1:max,1:max]' * Q[1:max,1:max]
+    # @show norm(H_copy[1:max+1,1:max] * Q[1:max,1:max-2] - Q[1:max+1,1:max-1] * H_whole[1:max-1,1:max-2]) < 1e-6
+    # @show norm(Qv[1:max,1:max-2]' * H_copy[1:max,1:max] * Qv[1:max,1:max-2] - H_whole[1:max-2,1:max-2])
+    # @show norm(Q_test[1:max,1:max-2]' * H_copy[1:max,1:max] * Q_test[1:max,1:max-2] - H_whole[1:max-2,1:max-2])
 
     @inbounds if n > 2
         # Do the last Given's rotation by hand.
@@ -167,5 +238,28 @@ function double_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Complex, Q::Ab
 
     @inbounds H[n + 1, n - 1] = zero(Tv)
     
+    # V_temp = copy(V)
+    # Vn = Matrix{Float64}(size(V,1), max-min+1)
+    # mul!(Vn, view(V_temp, :, min:max), view(Q_test, min:max, min:max-1))
+    # copyto!(view(V_temp, :, min:max-1), Vn)
+    # @show norm(V_temp[:, 1 : max-2]' * A * V_temp[:, 1 : max-2] - H_whole[1 : max-2, 1 : max-2])
+
+
+    # @show norm(V_temp[:, 1 : minim-2]' * A * V_temp[:, 1 : minim-2] - H_copy[1 : minim-2, 1 : minim-2])
+
+    # tmp = copy(view(V_test, :, max + 1))
+    # A_mul_B!(view(V_test, :, 1:max-2), copy(V_test[:, 1 : realmax]), Q_test[1:realmax, 1 : max-2])
+    # copyto!(view(V_test, :, max-1), tmp)
+    # @show norm(V_test[:, 1 : max-2]' * A * V_test[:, 1 : max-2] - H_copy[1 : max-2, 1 : max-2])
+    # @show norm(Q_test[1:max,1:max-2]' * H_copy[1:max,1:max] * Q_test[1:max,1:max-2] - H_whole[1:max-2,1:max-2])
+
+    # V_temp = copy(V)
+    # Vn = Matrix{Float64}(size(V,1), minim-min)
+    # mul!(Vn, view(V_temp, :, min:max), view(Q, min:max, min:minim-1))
+    # copyto!(view(V_temp, :, min:minim-1), Vn)
+    # # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
+    # # @show μ
+    # @show norm(V_temp[:, 1 : minim-1]' * A * V_temp[:, 1 : minim-1] - H_whole[1 : minim-1, 1 : minim-1])
+
     H
 end

@@ -38,5 +38,5 @@ end
 
         # Test whether relation " H_prev * Q = Q * H_next " holds
         @test norm(H_copy * Q[1:n,1:n-2] - Q[1:n+1,1:n-1] * H[1:n-1,1:n-2]) < 1e-6
-    end    
+    end
 end
