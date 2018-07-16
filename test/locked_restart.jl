@@ -95,18 +95,31 @@ end
 
 # Fails, as A has complex eigenvals
 @testset "Special case" begin
-   ε = 1e-6
-   min, max = 25, 35
-   A = triu(rand(Float64, 100, 100))
-   for i = 1 : 100
-       A[i,i] = i
-   end
-    # A = matrix_with_three_clusters(Float64, 100)
-   A[25:26,25:26] = [0.0 26.0; -26.0 0.0] 
-#    A[1:2,1:2] = [1.0 22.0; -22.0 1.0]
-#    A[1:2,1:2] = [2.0 1.0; 1.0 1.0]
-#    display(A)
-   partial_schur = restarted_arnoldi(A, min, max, 5, eps(Float64), 100)
+    ε = 1e-6
+    min = 25
+    max = 30
+    nev = 5
+    A = triu(rand(Float64, 100, 100))
+    for i = 1 : 100
+        A[i,i] = i
+    end
+    A[25:26,25:26] = [1.0 19.0; -19.0 1.0]
+    @show cond(A)
+    partial_schur = restarted_arnoldi(A, min, max, nev, ε, 30)
+
+#    ε = 1e-6
+#    min, max = 25, 35
+#    A = triu(rand(Float64, 100, 100))
+#    for i = 1 : 100
+#        A[i,i] = i
+#    end
+#     # A = matrix_with_three_clusters(Float64, 100)
+#    A[25:26,25:26] = [0.0 26.0; -26.0 0.0] 
+# #    A[1:2,1:2] = [1.0 22.0; -22.0 1.0]
+# #    A[1:2,1:2] = [2.0 1.0; 1.0 1.0]
+# #    display(A)
+#    partial_schur = restarted_arnoldi(A, min, max, 5, eps(Float64), 100)
+   
    # partial_schur = restarted_arnoldi(A, min, max, min, eps(real(T)), 10)
 
    R, Q, k = partial_schur.R, partial_schur.Q, partial_schur.k

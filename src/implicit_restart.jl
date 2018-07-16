@@ -45,7 +45,7 @@ function implicit_restart!(A::AbstractMatrix, arnoldi::Arnoldi{T}, λs, min = 5,
         # mul!(Vn, view(V_temp, :, active:max), view(Q, active:max, active:min-1))
         # copyto!(view(V_temp, :, active:min-1), Vn)
         # # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
-        # @show μ
+        @show μ
         # @show norm(V_temp[:, 1 : min-1]' * A * V_temp[:, 1 : min-1] - H[1 : min-1, 1 : min-1])
         # a = sort!(eigvals(H[active:m,active:m]), by=abs)
         # # @show a[1:m-min+1]
@@ -139,7 +139,7 @@ function double_shift!(V_test::AbstractMatrix, A::AbstractMatrix{Tv}, V::Abstrac
     # minim = realmax-10
     V_temp = copy(V)
     Vn = Matrix{Float64}(size(V,1), minim-min)
-    mul!(Vn, view(V_temp, :, min:max), view(Q, min:max, min:minim-1))
+    mul!(Vn, view(V_temp, :, min:realmax), view(Q, min:realmax, min:minim-1))
     copyto!(view(V_temp, :, min:minim-1), Vn)
     # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
     # @show μ
@@ -170,7 +170,7 @@ function double_shift!(V_test::AbstractMatrix, A::AbstractMatrix{Tv}, V::Abstrac
     # minim = realmax-10
     V_temp = copy(V)
     Vn = Matrix{Float64}(size(V,1), minim-min)
-    mul!(Vn, view(V_temp, :, min:max), view(Q, min:max, min:minim-1))
+    mul!(Vn, view(V_temp, :, min:realmax), view(Q, min:realmax, min:minim-1))
     copyto!(view(V_temp, :, min:minim-1), Vn)
     # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
     # @show μ
@@ -203,18 +203,29 @@ function double_shift!(V_test::AbstractMatrix, A::AbstractMatrix{Tv}, V::Abstrac
         rmul!(Q_test, G₂)
 
         if n == 33
-        # realmax-10 happens to be the size after the implicit restart
-        # minim = realmax-10
-        V_temp = copy(V)
-        Vn = Matrix{Float64}(size(V,1), minim-min)
-        mul!(Vn, view(V_temp, :, min:max), view(Q, min:max, min:minim-1))
-        copyto!(view(V_temp, :, min:minim-1), Vn)
-        # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
-        # @show μ
-        # if norm(V_temp[:, 1 : minim-1]' * A * V_temp[:, 1 : minim-1] - H_whole[1 : minim-1, 1 : minim-1]) > 1e-6 && i < n-2
+            # @show min+i
+            # realmax-10 happens to be the size after the implicit restart
+            # minim = realmax-10
+            V_temp = copy(V)
+            Vn = Matrix{Float64}(size(V,1), minim-min)
+            mul!(Vn, view(V_temp, :, min:realmax), view(Q, min:realmax, min:minim-1))
+            copyto!(view(V_temp, :, min:minim-1), Vn)
+            # copyto!(view(V_temp, :, m+1), view(V_temp, :, max+1))
+            # @show μ
             @show norm(V_temp[:, 1 : minim-1]' * A * V_temp[:, 1 : minim-1] - H_whole[1 : minim-1, 1 : minim-1])
-            # display()
-        # end
+            @show norm(Q_test[1:realmax,1:realmax-2]' * H_copy[1:realmax,1:realmax] * Q_test[1:realmax,1:realmax-2] - H_whole[1:realmax-2,1:realmax-2])
+            if norm(V_temp[:, 1 : minim-1]' * A * V_temp[:, 1 : minim-1] - H_whole[1 : minim-1, 1 : minim-1]) > 1e-6
+                # for i = 1:realmax
+                #     for j = 1:i-2
+                #         if abs(H_whole[i,j]) > 1e-6
+                #             @show (i,j)
+                #         end
+                #     end
+                # end
+                @show norm(V_temp[:, 1 : minim-2]' * A * V_temp[:, 1 : minim-2] - H_whole[1 : minim-2, 1 : minim-2])
+                # @show min+i
+                # @show norm(Q_test[1:realmax,1:realmax-2]' * H_copy[1:realmax,1:realmax] * Q_test[1:realmax,1:realmax-2] - H_whole[1:realmax-2,1:realmax-2])
+            end
         end
     end
     
