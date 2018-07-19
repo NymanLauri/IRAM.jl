@@ -324,429 +324,816 @@ function double_shift_schur!(H::AbstractMatrix{Tv}, min, max, μ::Complex, Q::Ab
     H
 end
 
-function schur_to_eigen(Schur::PartialSchur{TQ,TR}, N, LDT, VR, LDVR, M, WORK ) where {TQ,TR}
+function schur_to_eigen!(Schur::PartialSchur{TQ,TR}) where {TQ,TR}
     T = Schur.R
+    VR = Schur.Q
+    LDT = size(T,1)
+    LDVR = size(VR, 1)
+    N = LDT # N is the "order of T"
+    WORK = Matrix{Float64}(3*N,3*N)
+    M = N
+
     ZERO = zero(Float64)
     ONE = one(Float64)
-    OVER = false
 
-#     if SOMEV
-#     M = 0
-#     PAIR = false
-#     for J = 1 : N
-#        if PAIR
-#           PAIR = false
-#           SELECT[J] = false
-#        else
-#           if J < N
-#              if T[J+1, J] == ZERO
-#                 if SELECT[J]
-#                      M = M + 1
-#                 end
-#              else
-#                 PAIR = .TRUE.
-#                 if SELECT[J] || SELECT[J+1]
-#                    SELECT[J] = .TRUE.
-#                    M = M + 2
-#                 end
-#              end
-#           else
-#              if SELECT[N]
-#                 M = M + 1
-#              end
-#           end
-#        end
-#     end
-#  else
-#     M = N
-#  end
-
-#  if MM < M
-#   INFO = -11
-#  end
-# end
-# if INFO != 0
-#  CALL XERBLA( 'DTREVC', -INFO )
-#  return false
-# end
-
-# *
-# *     Quick return if possible.
-# *
-if N == 0
-    return false
-end
-# *
-# *     Set the constants to control overflow.
-# *
-# UNFL = DLAMCH( 'Safe minimum' )
-UNFL = eps(Float64) #Not sure what to use for safe minimum
-OVFL = ONE / UNFL
-
-# CALL DLABAD( UNFL, OVFL )
-if log10(OVFL) > 2000 
-    UNFL = sqrt( UNFL )
-    OVFL = sqrt( OVFL )
-end
-
-# ULP = DLAMCH( 'Precision' )
-ULP = 2*eps(Float64) # Base*eps
-SMLNUM = UNFL*( N / ULP )
-BIGNUM = ( ONE-ULP ) / SMLNUM
-# *
-# *     Compute 1-norm of each column of strictly upper triangular
-# *     part of T to control overflow in triangular solver.
-# *
-WORK[1] = ZERO
-for J = 2 : N
-    WORK[J] = ZERO
-    for I = 1 : J - 1
-        WORK[J] = WORK[J] + abs( T[I, J] )
+    # Quick return if possible.
+    if N == 0
+        return false
     end
-end
 
 
+    # Set the constants to control overflow.
 
-# Right eigenvectors
-IP = 0
-IS = M
-# DO 140 KI = N, 1, -1
-for KI = N:-1:1
-    if IP == 1 
-        # GO TO 130
+    # UNFL = DLAMCH( 'Safe minimum' )
+    UNFL = eps(Float64) #Not sure what to use for safe minimum
+    OVFL = ONE / UNFL
+
+    # CALL DLABAD( UNFL, OVFL )
+    if log10(OVFL) > 2000 
+        UNFL = sqrt( UNFL )
+        OVFL = sqrt( OVFL )
+    end
+
+    # ULP = DLAMCH( 'Precision' )
+    ULP = 2*eps(Float64) # Base*eps
+    SMLNUM = UNFL*( N / ULP )
+    BIGNUM = ( ONE-ULP ) / SMLNUM
+
+    # Compute 1-norm of each column of strictly upper triangular
+    # part of T to control overflow in triangular solver.
+    WORK[1] = ZERO
+    for J = 2 : N
+        WORK[J] = ZERO
+        for I = 1 : J - 1
+            WORK[J] = WORK[J] + abs( T[I, J] )
+        end
+    end
+
+    # Right eigenvectors
+    IP = 0
+    IS = M
+    for KI = N:-1:1
+        if IP == 1 
+            if IP == 1
+                IP = 0
+            end
+            if IP == -1
+                IP = 1
+            end
+            continue
+        end
+        if KI != 1 && T[KI, KI-1] != zero(eltype(TR))
+            IP = -1
+        end
+
+        # Compute the KI-th eigenvalue (WR,WI).
+        WR = T[KI, KI]
+        WI = ZERO
+        if IP != 0 
+            WI = sqrt( abs( T[KI, KI-1] ) )*sqrt( abs( T[KI, KI-1] ) )
+        end
+        SMIN = max( ULP*( abs( WR )+abs( WI ) ), SMLNUM )
+
+        if IP == 0
+
+            # Real right eigenvector
+            WORK[KI+N] = ONE
+
+            # Form right-hand side
+            for K = 1 : KI - 1
+                WORK[K+N] = -T[K, KI]
+            end
+
+            # Solve the upper quasi-triangular system:
+            # (T(1:KI-1,1:KI-1) - WR)*X = SCALE*WORK.
+            JNXT = KI - 1
+            for J = KI - 1: -1 : 1
+                if J > JNXT
+                    # GO TO 60
+                    break
+                end
+                J1 = J
+                J2 = J
+                JNXT = J - 1
+                if J > 1
+                    if !iszero(T[J, J-1])
+                        J1 = J - 1
+                        JNXT = J - 2
+                    end
+                end
+
+                if J1 == J2
+
+                    #DEFINE ALL VARIABLESs
+                    SCALE = Matrix{Float64}(1,1)
+                    X = Matrix{Float64}(1,1)
+                    XNORM = Matrix{Float64}(1,1)
+                    IERR = Matrix{Float64}(1,1)
+
+                    # SCALE = 1.0
+                    # X = 1.0
+                    # XNORM[1] = 1.0
+                    # IERR = 1.0
+
+                    # 1-by-1 diagonal block
+                    DLALN2( false, 1, 1, SMIN, ONE, T[J, J], LDT, ONE, ONE, WORK[J+N], N, WR, ZERO, X, 2, SCALE, XNORM, IERR )
+
+                    # Scale X(1,1) to avoid overflow when updating
+                    # the right-hand side.
+                    if XNORM[1] > ONE
+                    if WORK[J] > BIGNUM / XNORM[1]
+                        X[1, 1] = X[1, 1] / XNORM[1]
+                        SCALE = SCALE / XNORM[1]
+                    end
+                    end
+
+                    # Scale if necessary
+                    if SCALE != ONE
+                        DSCAL( KI, SCALE, WORK[1+N], 1 )
+                    end
+                    WORK[J+N] = X[1, 1]
+
+                    # Update right-hand side
+                    DAXPY( J-1, -X[1, 1], T[1, J], 1, WORK[1+N], 1 )
+                else
+
+                    # 2-by-2 diagonal block
+                    DLALN2( false, 2, 1, SMIN, ONE, T[J-1, J-1], LDT, ONE, ONE, WORK[J-1+N], N, WR, ZERO, X, 2, SCALE, XNORM[1], IERR )
+
+                    # Scale X(1,1) and X(2,1) to avoid overflow when
+                    # updating the right-hand side.              
+                    if XNORM[1] > ONE
+                        BETA = max( WORK[J-1], WORK[j] )
+                        if BETA > BIGNUM / XNORM[1]
+                            X[1, 1] = X[1, 1] / XNORM[1]
+                            X[2, 1] = X[2, 1] / XNORM[1]
+                            SCALE = SCALE / XNORM[1]
+                        end
+                    end
+
+                    # Scale if necessary
+                    if SCALE != ONE
+                        DSCAL( KI, SCALE, WORK[1+N], 1 )
+                    end
+                    WORK[J-1+N] = X[1, 1]
+                    WORK[J+N] = X[2, 1]
+
+                    # Update right-hand side
+                    DAXPY( J-2, -X[1, 1], T[1, J-1], 1, WORK[1+N], 1 )
+                    DAXPY( J-2, -X[2, 1], T[1, J], 1, WORK[1+N], 1 )
+                end
+            end
+
+            # Copy the vector x or Q*x to VR and normalize.
+            DCOPY( KI, WORK[1+N], 1, VR[1, IS], 1 )
+
+            II = IDAMAX( KI, VR[1, IS], 1 )
+            REMAX = ONE / abs( VR[II, IS] )
+            DSCAL( KI, REMAX, VR[1, IS], 1 )
+
+            for K = KI + 1 : N
+                VR[K, IS] = ZERO
+            end
+
+        else
+
+            # Complex right eigenvector.
+
+            # Initial solve
+            # [ (T(KI-1,KI-1) T(KI-1,KI) ) - (WR + I* WI)]*X = 0.
+            # [ (T(KI,KI-1)   T(KI,KI)   )               ]
+
+            if abs( T[KI-1, KI] ) >= abs( T[KI, KI-1] )
+                WORK[KI-1+N] = ONE
+                WORK[KI+N2] = WI / T[KI-1, KI]
+            else
+                WORK[KI-1+N] = -WI / T[KI, KI-1]
+                WORK[KI+N2] = ONE
+            end
+            WORK[KI+N] = ZERO
+            WORK[KI-1+N2] = ZERO
+
+            # Form right-hand side
+            for K = 1 : KI - 2
+                WORK[K+N] = -WORK[KI-1+N]*T[K, KI-1]
+                WORK[K+N2] = -WORK[KI+N2]*T[K, KI]
+            end
+
+            # Solve upper quasi-triangular system:
+            # (T(1:KI-2,1:KI-2) - (WR+i*WI))*X = SCALE*(WORK+i*WORK2)
+            JNXT = KI - 2
+            for J = KI - 2:-1:1
+                if J > JNXT
+                    break
+                end
+                J1 = J
+                J2 = J
+                JNXT = J             
+                if J > 1
+                    if T[J, J-1] != ZERO
+                        J1 = J - 1
+                        JNXT = J - 2
+                    end
+                end
+
+                if J1 == J2
+                    # 1-by-1 diagonal block
+                    DLALN2( false, 1, 2, SMIN, ONE, T[J, J], LDT, ONE, ONE, WORK[J+N], N, WR, WI, X, 2, SCALE, XNORM[1], IERR )
+
+                    # Scale X(1,1) and X(1,2) to avoid overflow when
+                    # updating the right-hand side
+                    if XNORM[1] > ONE N
+                        if WORK[J] > BIGNUM / XNORM[1]
+                            X[1, 1] = X[1, 1] / XNORM[1]
+                            X[1, 2] = X[1, 2] / XNORM[1]
+                            SCALE = SCALE / XNORM[1]
+                        end
+                    end
+
+                    # Scale if necessary
+                    if SCALE != ONE
+                        DSCAL( KI, SCALE, WORK[1+N], 1 )
+                        DSCAL( KI, SCALE, WORK[1+N2], 1 )
+                    end
+                    WORK[J+N] = X[1, 1]
+                    WORK[J+N2] = X[1, 2]
+
+                    # Update the right-hand side
+                    DAXPY( J-1, -X[1, 1], T[1, J], 1, WORK[1+N], 1 )
+                    DAXPY( J-1, -X[1, 2], T[1, J], 1, WORK[1+N2], 1 )
+                else
+
+                    # 2-by-2 diagonal block
+                    DLALN2( false, 2, 2, SMIN, ONE, T[J-1, J-1], LDT, ONE, ONE, WORK[J-1+N], N, WR, WI, X, 2, SCALE, XNORM[1], IERR )
+
+                    # Scale X to avoid overflow when updating
+                    # the right-hand side               
+                    if XNORM[1] > ONE
+                        BETA = max( WORK[J-1], WORK[j] )
+                        if BETA > BIGNUM / XNORM[1]
+                            REC = ONE / XNORM[1]
+                            X[1, 1] = X[1, 1]*REC
+                            X[1, 2] = X[1, 2]*REC
+                            X[2, 1] = X[2, 1]*REC
+                            X[2, 2] = X[2, 2]*REC
+                            SCALE = SCALE*REC
+                        end
+                    end
+
+                    # Scale if necessary
+                    if SCALE != ONE
+                        DSCAL( KI, SCALE, WORK[1+N], 1 )
+                        DSCAL( KI, SCALE, WORK[1+N2], 1 )
+                    end
+                    WORK[J-1+N] = X[1, 1]
+                    WORK[J+N] = X[2, 1]
+                    WORK[J-1+N2] = X[1, 2]
+                    WORK[J+N2] = X[2, 2]
+
+                    # Update the right-hand side
+                    DAXPY( J-2, -X[1, 1], T[1, J-1], 1, WORK[1+N], 1 )
+                    DAXPY( J-2, -X[2, 1], T[1, J], 1, WORK[1+N], 1 )
+                    DAXPY( J-2, -X[1, 2], T[1, J-1], 1, WORK[1+N2], 1 )
+                    DAXPY( J-2, -X[2, 2], T[1, J], 1, WORK[1+N2], 1 )
+                end
+            end
+
+            # Copy the vector x or Q*x to VR and normalize.
+            DCOPY( KI, WORK[1+N], 1, VR[1, IS-1], 1 )
+            DCOPY( KI, WORK[1+N2], 1, VR[1, IS], 1 )
+
+            EMAX = ZERO
+            for K = 1 : KI
+                EMAX = max( EMAX, abs( VR[K, IS-1] ) + abs( VR[K, IS] ) )
+            end
+
+            REMAX = ONE / EMAX
+            DSCAL( KI, REMAX, VR[1, IS-1], 1 )
+            DSCAL( KI, REMAX, VR[1, IS], 1 )
+
+            for K = KI + 1 : N
+                VR[K, IS-1] = ZERO
+                VR[K, IS] = ZERO
+            end
+        end
+        IS = IS - 1
+        if IP != 0
+            IS = IS - 1
+        end
         if IP == 1
             IP = 0
         end
         if IP == -1
             IP = 1
         end
-        continue
-    end
-    if KI != 1 && T[KI, KI-1] != zero(TR)
-        IP = -1 #(GO TO 40)
     end
 
-# 40       CONTINUE
-    #    if SOMEV != 0 
-    #       if IP == 0
-    #          if !select(KI)
-    #            GO TO 130
-    #          end
-    #       else
-    #          if !select(KI-1)
-    #            GO TO 130
-    #          end
-    #     end
-# *
-# *           Compute the KI-th eigenvalue (WR,WI).
-# *
-    WR = T[KI, KI]
-    WI = ZERO
-    if IP != 0 
-        WI = sqrt( abs( T[KI, KI-1] ) )*sqrt( abs( T[KI, KI-1] ) )
-    end
-    SMIN = max( ULP*( abs( WR )+abs( WI ) ), SMLNUM )
+    return true
+end
 
-    if IP == 0
-# *
-# *              Real right eigenvector
-# *
-        WORK[KI+N] = ONE
-# *
-# *              Form right-hand side
-# *
-        for K = 1 : KI - 1
-            WORK[K+N] = -T[K, KI]
-        end
-# *
-# *              Solve the upper quasi-triangular system:
-# *                 (T(1:KI-1,1:KI-1) - WR)*X = SCALE*WORK.
-# *
-        JNXT = KI - 1
-        for J = KI - 1: -1 : 1
-            if J > JNXT
-                # GO TO 60
-                break
-            end
-            J1 = J
-            J2 = J
-            JNXT = J - 1
-            if J > 1
-                if !iszero(T[J, J-1])
-                    J1 = J - 1
-                    JNXT = J - 2
-                end
-            end
+function DAXPY(n, da, dx, incx, dy, incy)
 
-            if J1 == J2
-# *
-# *                    1-by-1 diagonal block
-# *
-                CALL DLALN2( false, 1, 1, SMIN, ONE, T[J, J],
-$                            LDT, ONE, ONE, WORK[J+N], N, WR,
-$                            ZERO, X, 2, SCALE, XNORM, IERR )
-# *
-# *                    Scale X(1,1) to avoid overflow when updating
-# *                    the right-hand side.
-# *
-                if XNORM > ONE
-                   if WORK[J] > BIGNUM / XNORM
-                      X[1, 1] = X[1, 1] / XNORM
-                      SCALE = SCALE / XNORM
-                   end
-                end
-# *
-# *                    Scale if necessary
-# *
-                if SCALE != ONE
-$                  CALL DSCAL( KI, SCALE, WORK[1+N], 1 )
-                end
-                WORK[J+N] = X[1, 1]
-# *
-# *                    Update right-hand side
-# *
-                CALL DAXPY( J-1, -X[1, 1], T[1, J], 1,
-$                           WORK[1+N], 1 )
-*
-            else
-# *
-# *                    2-by-2 diagonal block
-# *
-                CALL DLALN2( false, 2, 1, SMIN, ONE,
-$                            T[J-1, J-1 ), LDT, ONE, ONE,
-$                            WORK[J-1+N], N, WR, ZERO, X, 2,
-$                            SCALE, XNORM, IERR )
-# *
-# *                    Scale X(1,1) and X(2,1) to avoid overflow when
-# *                    updating the right-hand side.              
-                if XNORM > ONE
-                    BETA = max( WORK[J-1], WORK[j] )
-                    if BETA > BIGNUM / XNORM
-                        X[1, 1] = X[1, 1] / XNORM
-                        X[2, 1] = X[2, 1] / XNORM
-                        SCALE = SCALE / XNORM
-                    end
-                end
-# *
-# *                    Scale if necessary
-# *
-                if SCALE != ONE
-$                  CALL DSCAL( KI, SCALE, WORK[1+N], 1 )
-                end
-                WORK[J-1+N] = X[1, 1]
-                WORK[J+N] = X[2, 1]
-# *
-# *                    Update right-hand side
-# *
-                CALL DAXPY( J-2, -X[1, 1], T[1, J-1 ), 1,
-$                           WORK[1+N], 1 )
-                CALL DAXPY( J-2, -X[2, 1], T[1, J], 1,
-$                           WORK[1+N], 1 )
+    if n <= 0 return false end
+    if iszero(da) return false end
+    if incx == 1 && incy == 1
+
+        # code for both increments equal to 1
+        # clean-up loop
+        m = mod(n,4)
+        if m != 0
+            for i = 1:m
+                dy[i] = dy[i] + da*dx[i]
             end
         end
-# 60          CONTINUE
-# *
-# *              Copy the vector x or Q*x to VR and normalize.
-# *
-        if !OVER
-            CALL DCOPY( KI, WORK[1+N], 1, VR[1, IS], 1 )
+        if n < 4 return false end
+        mp1 = m + 1
+        for i = mp1:4:n
+            dy[i] = dy[i] + da*dx[i]
+            dy[i+1] = dy[i+1] + da*dx[i+1]
+            dy[i+2] = dy[i+2] + da*dx[i+2]
+            dy[i+3] = dy[i+3] + da*dx[i+3]
+        end
+    else
 
-            II = IDAMAX( KI, VR[1, IS], 1 )
-            REMAX = ONE / abs( VR[II, IS] )
-            CALL DSCAL( KI, REMAX, VR[1, IS], 1 )
+        # code for unequal increments or equal increments
+        #   not equal to 1
+        ix = 1
+        iy = 1
+        if incx < 0 ix = -n+1*incx + 1 end
+        if incy < 0 iy = -n+1*incy + 1 end
+        for i = 1:n
+            dy[iy] = dy[iy] + da*dx[ix]
+            ix = ix + incx
+            iy = iy + incy
+        end
+    end
 
-            for K = KI + 1 : N
-                VR[K, IS] = ZERO
+end
+
+function DSCAL(n, da, dx, incx)
+
+    if n <= 0 || incx <= 0 return false end
+    if incx == 1
+
+        # code for increment equal to 1
+        # clean-up loop
+        m = mod(n,5)
+        if m != 0
+            for i = 1:m
+                dx[i] = da*dx[i]
             end
-# 70             CONTINUE
+            if n < 5 return false end
+        end
+        mp1 = m + 1
+        for i = mp1:5:n
+            dx[i] = da*dx[i]
+            dx[i+1] = da*dx[i+1]
+            dx[i+2] = da*dx[i+2]
+            dx[i+3] = da*dx[i+3]
+            dx[i+4] = da*dx[i+4]
+        end
+    else
+
+        # code for increment not equal to 1
+        nincx = n*incx
+        for i = 1:incx:nincx
+            dx[i] = da*dx[i]
+        end
+    end
+end
+
+function DCOPY(n, dx, incx, dy, incy)
+
+    if n <= 0 return false end
+    if incx == 1 && incy == 1
+    # code for both increments equal to 1 
+    # clean-up loop
+        m = mod(n,7)
+        if m != 0
+            for i = 1:m
+                dy[i] = dx[i]
+            end
+            if (n < 7) return false end
+        end
+        mp1 = m + 1
+        for i = mp1:7:n
+            dy[i] = dx[i]
+            dy[i+1] = dx[i+1]
+            dy[i+2] = dx[i+2]
+            dy[i+3] = dx[i+3]
+            dy[i+4] = dx[i+4]
+            dy[i+5] = dx[i+5]
+            dy[i+6] = dx[i+6]
+        end
+    else
+
+    #  code for unequal increments or equal increments
+    #    not equal to 1
+        ix = 1
+        iy = 1
+        if incx < 0 ix = (-n+1)*incx + 1 end
+        if incy < 0 iy = (-n+1)*incy + 1 end
+        for i = 1:n
+            dy[iy] = dx[ix]
+            ix = ix + incx
+            iy = iy + incy
+        end
+    end
+
+    return true
+end
+
+function IDAMAX(n, dx, incx)
+
+    idamax = 0
+    if n < 1 || incx <= 0 return false end
+    idamax = 1
+    if n == 1 return false end
+    if incx == 1
+    #    code for increment equal to 1
+        dmax = abs(dx[1])
+        for i = 2:n
+            if abs(dx[i]) > dmax
+                idamax = i
+                dmax = abs(dx[i])
+            end
+        end
+    else
+        # code for increment not equal to 1
+        ix = 1
+        dmax = abs(dx[1])
+        ix = ix + incx
+        for i = 2:n
+            if abs(dx[ix]) > dmax
+                idamax = i
+                dmax = abs(dx[ix])
+            end
+            ix = ix + incx
+        end
+    end
+
+    return true
+end
+
+function DLALN2(LTRANS, NA, NW, SMIN, CA, A, LDA, D1, D2, B, LDB, WR, WI, X, LDX, SCALE, XNORM, INFO)
+
+    ZERO = zero(Float64)
+    ONE = one(Float64)
+    TWO = 2*ONE
+
+    ZSWAP = [false, false, true, true]
+    RSWAP = [false, true, false, true]
+    IPIVOT = [1 2 3 4; 2 1 4 3; 3 4 1 2; 4 3 2 1]
+
+    CI = Matrix{Float64}(2,2)
+    CIV = CI
+
+    CR = Matrix{Float64}(2,2)
+    CRV = CR
+
+#  Compute BIGNUM
+    # SMLNUM = TWO*DLAMCH( 'Safe minimum' )
+    SMLNUM = TWO*eps(Float64)
+    BIGNUM = ONE / SMLNUM
+    SMINI = max( SMIN, SMLNUM )
+
+#  Don't check for input errors
+
+    INFO = 0
+
+#  Standard Initializations
+
+    SCALE = ONE
+
+    if NA == 1
+
+        # 1 x 1  (i.e., scalar) system   C X = B
+        if NW == 1
+
+            #    Real 1x1 system.
+
+            #    C = ca A - w D
+
+            CSR = CA*A[1, 1] - WR*D1
+            CNORM = abs( CSR )
+
+            #    If | C | < SMINI, use C = SMINI
+
+            if CNORM < SMINI
+                CSR = SMINI
+                CNORM = SMINI
+                INFO = 1
+            end
+
+        #    Check scaling for  X = B / C
+
+            BNORM = abs( B[1, 1] )
+            if CNORM < ONE && BNORM > ONE
+                if BNORM > BIGNUM*CNORM
+                    SCALE = ONE / BNORM
+                end
+            end
+
+        #   Compute X
+            X[1, 1] = B[1, 1]*SCALE / CSR
+            XNORM[1] = abs( X[1, 1] )
+
         else
-    #         if KI > 1
-    # $         CALL DGEMV( 'N', N, KI-1, ONE, VR, LDVR,
-    # $                           WORK[1+N], 1, WORK[KI+N],
-    # $                           VR[1, KI], 1 )
-    #         end
-    #             II = IDAMAX( N, VR[1, KI], 1 )
-    #             REMAX = ONE / abs( VR[II, KI] )
-    #             CALL DSCAL( N, REMAX, VR[1, KI], 1 )
+
+        #   Complex 1x1 system (w is complex)
+        #   C = ca A - w D
+            CSR = CA*A[1, 1] - WR*D1
+            CSI = -WI*D1
+            CNORM = abs( CSR ) + abs( CSI )
+
+        #   If | C | < SMINI, use C = SMINI
+            if CNORM < SMINI
+                CSR = SMINI
+                CSI = ZERO
+                CNORM = SMINI
+                INFO = 1
+            end
+
+        #   Check scaling for  X = B / C
+            BNORM = abs( B[1, 1] ) + abs( B[1, 2] )
+            if CNORM < ONE && BNORM > ONE
+                if BNORM > BIGNUM*CNORM
+                    SCALE = ONE / BNORM
+                end
+            end
+
+        #   Compute X
+            DLADIV( SCALE*B[1, 1], SCALE*B[1, 2], CSR, CSI, X[1, 1], X[1, 2] )
+            XNORM[1] = abs( X[1, 1] ) + abs( X[1, 2] )
         end
 
     else
-# *
-# *              Complex right eigenvector.
-# *
-# *              Initial solve
-# *                [ (T(KI-1,KI-1) T(KI-1,KI) ) - (WR + I* WI)]*X = 0.
-# *                [ (T(KI,KI-1)   T(KI,KI)   )               ]
-# *
-        if abs( T[KI-1, KI] > abs( T[KI, KI-1] )
-            WORK[KI-1+N] = ONE
-            WORK[KI+N2] = WI / T[KI-1, KI]
+
+#    2x2 System
+
+#    Compute the real part of  C = ca A - w D  (or  ca A' - w D )
+
+        CR[1, 1] = CA*A[1, 1] - WR*D1
+        CR[2, 2] = CA*A[2, 2] - WR*D2
+        if LTRANS
+            CR[1, 2] = CA*A[2, 1]
+            CR[2, 1] = CA*A[1, 2]
         else
-            WORK[KI-1+N] = -WI / T[KI, KI-1]
-            WORK[KI+N2] = ONE
+            CR[2, 1] = CA*A[2, 1]
+            CR[1, 2] = CA*A[1, 2]
         end
-        WORK[KI+N] = ZERO
-        WORK[KI-1+N2] = ZERO
-# *
-# *              Form right-hand side
-# *
-        for K = 1 : KI - 2
-            WORK[K+N] = -WORK[KI-1+N]*T[K, KI-1]
-            WORK[K+N2] = -WORK[KI+N2]*T[K, KI]
-        end
-# 80          CONTINUE
-# *
-# *              Solve upper quasi-triangular system:
-# *              (T(1:KI-2,1:KI-2) - (WR+i*WI))*X = SCALE*(WORK+i*WORK2)
-# *
-        JNXT = KI - 2
-        for J = KI - 2:-1:1
-            if J > JNXT
-    # $        GO TO 90
-                break
-            end
-            J1 = J
-            J2 = J
-            JNXT = J             
-            if J > 1
-                if T[J, J-1] != ZERO
-                    J1 = J - 1
-                    JNXT = J - 2
+
+        if NW == 1
+
+    #   Real 2x2 system  (w is real)
+
+    #   Find the largest element in C
+
+            CMAX = ZERO
+            ICMAX = 0
+
+            for J = 1:4
+                if abs( CRV[J] ) > CMAX
+                    CMAX = abs( CRV[J] )
+                    ICMAX = J
                 end
             end
+    #    10       CONTINUE
 
-            if J1 == J2
-        #             1-by-1 diagonal block
-                CALL DLALN2( false, 1, 2, SMIN, ONE, T[J, J],
-                    LDT, ONE, ONE, WORK[J+N], N, WR, WI,
-                    X, 2, SCALE, XNORM, IERR )
+        #   If norm(C) < SMINI, use SMINI*identity.
 
-                # Scale X(1,1) and X(1,2) to avoid overflow when
-                # updating the right-hand side
-                if XNORM > ONE N
-                    if WORK[J] > BIGNUM / XNORM
-                        X[1, 1] = X[1, 1] / XNORM
-                        X[1, 2] = X[1, 2] / XNORM
-                        SCALE = SCALE / XNORM
+            if CMAX < SMINI
+                BNORM = max( abs( B[1, 1] ), abs( B[2, 1] ) )
+                if SMINI < ONE && BNORM > ONE
+                    if BNORM > BIGNUM*SMINI
+                        SCALE = ONE / BNORM
                     end
                 end
+                TEMP = SCALE / SMINI
+                X[1, 1] = TEMP*B[1, 1]
+                X[2, 1] = TEMP*B[2, 1]
+                XNORM[1] = TEMP*BNORM
+                INFO = 1
+                return false
+            end
 
-                # Scale if necessary
-                if SCALE != ONE
-                    CALL DSCAL( KI, SCALE, WORK[1+N], 1 )
-                    CALL DSCAL( KI, SCALE, WORK[1+N2], 1 )
+        #   Gaussian elimination with complete pivoting.
+
+            UR11 = CRV( ICMAX )
+            CR21 = CRV( IPIVOT[2, ICMAX] )
+            UR12 = CRV( IPIVOT[3, ICMAX] )
+            CR22 = CRV( IPIVOT[4, ICMAX] )
+            UR11R = ONE / UR11
+            LR21 = UR11R*CR21
+            UR22 = CR22 - UR12*LR21
+
+        #   If smaller pivot < SMINI, use SMINI
+
+            if abs( UR22 ) < SMINI
+                UR22 = SMINI
+                INFO = 1
+            end
+            if RSWAP( ICMAX )
+                BR1 = B[2, 1]
+                BR2 = B[1, 1]
+            else
+                BR1 = B[1, 1]
+                BR2 = B[2, 1]
+            end
+            BR2 = BR2 - LR21*BR1
+            BBND = max( abs( BR1*( UR22*UR11R ) ), abs( BR2 ) )
+            if BBND > ONE && abs( UR22 ) < ONE
+                if BBND.GE.BIGNUM*abs( UR22 )
+                    SCALE = ONE / BBND
                 end
-                WORK[J+N] = X[1, 1]
-                WORK[J+N2] = X[1, 2]
+            end
 
-                # Update the right-hand side
-                CALL DAXPY( J-1, -X[1, 1], T[1, J], 1, WORK[1+N], 1 )
-                CALL DAXPY( J-1, -X[1, 2], T[1, J], 1, WORK[1+N2], 1 )
+            XR2 = ( BR2*SCALE ) / UR22
+            XR1 = ( SCALE*BR1 )*UR11R - XR2*( UR11R*UR12 )
+            if ZSWAP( ICMAX )
+                X[1, 1] = XR2
+                X[2, 1] = XR1
+            else
+                X[1, 1] = XR1
+                X[2, 1] = XR2
+            end
+            XNORM[1] = max( abs( XR1 ), abs( XR2 ) )
+
+        #   Further scaling if  norm(A) norm(X) > overflow
+
+            if XNORM[1] > ONE && CMAX > ONE
+                if XNORM[1] > BIGNUM / CMAX
+                    TEMP = CMAX / BIGNUM
+                    X[1, 1] = TEMP*X[1, 1]
+                    X[2, 1] = TEMP*X[2, 1]
+                    XNORM[1] = TEMP*XNORM[1]
+                    SCALE = TEMP*SCALE
+                end
+            end
+        else
+
+            # Complex 2x2 system  (w is complex)
+
+            # Find the largest element in C
+            CI[1, 1] = -WI*D1
+            CI[2, 1] = ZERO
+            CI[1, 2] = ZERO
+            CI[2, 2] = -WI*D2
+            CMAX = ZERO
+            ICMAX = 0
+
+            for J = 1:4
+                if abs( CRV[J] )+abs( CIV[J] ) > CMAX
+                    CMAX = abs( CRV[J] ) + abs( CIV[J] )
+                    ICMAX = J
+                end
+            end
+    #    20       CONTINUE
+
+        #   If norm(C) < SMINI, use SMINI*identity.
+
+            if CMAX < SMINI
+                BNORM = max( abs( B[1, 1] )+abs( B[1, 2] ), abs( B[2, 1] )+abs( B[2, 2] ) )
+                if SMINI < ONE && BNORM > ONE
+                    if BNORM > BIGNUM*SMINI
+                       SCALE = ONE / BNORM
+                    end
+                end
+                TEMP = SCALE / SMINI
+                X[1, 1] = TEMP*B[1, 1]
+                X[2, 1] = TEMP*B[2, 1]
+                X[1, 2] = TEMP*B[1, 2]
+                X[2, 2] = TEMP*B[2, 2]
+                XNORM[1] = TEMP*BNORM
+                INFO = 1
+                return false
+            end
+
+        #    Gaussian elimination with complete pivoting.
+
+            UR11 = CRV[ICMAX]
+            UI11 = CIV[ICMAX]
+            CR21 = CRV[IPIVOT[2, ICMAX]]
+            CI21 = CIV[IPIVOT[2, ICMAX]]
+            UR12 = CRV[IPIVOT[3, ICMAX]]
+            UI12 = CIV[IPIVOT[3, ICMAX]]
+            CR22 = CRV[IPIVOT[4, ICMAX]]
+            CI22 = CIV[IPIVOT[4, ICMAX]]
+
+            if ICMAX == 1 || ICMAX == 4
+
+            #   Code when off-diagonals of pivoted C are real
+
+                if abs( UR11 ) > abs( UI11 )
+                    TEMP = UI11 / UR11
+                    UR11R = ONE / ( UR11*( ONE+TEMP^2 ) )
+                    UI11R = -TEMP*UR11R
+                else
+                    TEMP = UR11 / UI11
+                    UI11R = -ONE / ( UI11*( ONE+TEMP^2 ) )
+                    UR11R = -TEMP*UI11R
+                end
+                LR21 = CR21*UR11R
+                LI21 = CR21*UI11R
+                UR12S = UR12*UR11R
+                UI12S = UR12*UI11R
+                UR22 = CR22 - UR12*LR21
+                UI22 = CI22 - UR12*LI21
             else
 
-                # 2-by-2 diagonal block
-                CALL DLALN2( false, 2, 2, SMIN, ONE,
-        $                            T[J-1, J-1], LDT, ONE, ONE,
-        $                            WORK[J-1+N], N, WR, WI, X, 2, SCALE,
-        $                            XNORM, IERR )
+            #  Code when diagonals of pivoted C are real
 
-                # Scale X to avoid overflow when updating
-                # the right-hand side               
-                if XNORM > ONE
-                    BETA = max( WORK[J-1], WORK[j] )
-                    if BETA > BIGNUM / XNORM
-                        REC = ONE / XNORM
-                        X[1, 1] = X[1, 1]*REC
-                        X[1, 2] = X[1, 2]*REC
-                        X[2, 1] = X[2, 1]*REC
-                        X[2, 2] = X[2, 2]*REC
-                        SCALE = SCALE*REC
-                    end
+                UR11R = ONE / UR11
+                UI11R = ZERO
+                LR21 = CR21*UR11R
+                LI21 = CI21*UR11R
+                UR12S = UR12*UR11R
+                UI12S = UI12*UR11R
+                UR22 = CR22 - UR12*LR21 + UI12*LI21
+                UI22 = -UR12*LI21 - UI12*LR21
+            end
+            U22ABS = abs( UR22 ) + abs( UI22 )
+
+        #   If smaller pivot < SMINI, use SMINI
+
+            if U22ABS < SMINI
+                UR22 = SMINI
+                UI22 = ZERO
+                INFO = 1
+            end
+            if RSWAP( ICMAX )
+                BR2 = B[1, 1]
+                BR1 = B[2, 1]
+                BI2 = B[1, 2]
+                BI1 = B[2, 2]
+            else
+                BR1 = B[1, 1]
+                BR2 = B[2, 1]
+                BI1 = B[1, 2]
+                BI2 = B[2, 2]
+            end
+            BR2 = BR2 - LR21*BR1 + LI21*BI1
+            BI2 = BI2 - LI21*BR1 - LR21*BI1
+            BBND = max( ( abs( BR1 )+abs( BI1 ) )*( U22ABS*( abs( UR11R )+abs( UI11R ) ) ), abs( BR2 )+abs( BI2 ) )
+            if BBND > ONE && U22ABS < ONE
+                if BBND.GE.BIGNUM*U22ABS
+                    SCALE = ONE / BBND
+                    BR1 = SCALE*BR1
+                    BI1 = SCALE*BI1
+                    BR2 = SCALE*BR2
+                    BI2 = SCALE*BI2
                 end
-        # *
-        # *                    Scale if necessary
-        # *
-                if SCALE != ONE
-                    CALL DSCAL( KI, SCALE, WORK[1+N], 1 )
-                    CALL DSCAL( KI, SCALE, WORK[1+N2], 1 )
+            end
+
+            DLADIV( BR2, BI2, UR22, UI22, XR2, XI2 )
+            XR1 = UR11R*BR1 - UI11R*BI1 - UR12S*XR2 + UI12S*XI2
+            XI1 = UI11R*BR1 + UR11R*BI1 - UI12S*XR2 - UR12S*XI2
+            if ZSWAP( ICMAX )
+                X[1, 1] = XR2
+                X[2, 1] = XR1
+                X[1, 2] = XI2
+                X[2, 2] = XI1
+            else
+                X[1, 1] = XR1
+                X[2, 1] = XR2
+                X[1, 2] = XI1
+                X[2, 2] = XI2
+            end
+            XNORM[1] = max( abs( XR1 )+abs( XI1 ), abs( XR2 )+abs( XI2 ) )
+
+        #   Further scaling if  norm(A) norm(X) > overflow
+
+            if XNORM[1] > ONE && CMAX > ONE
+                if XNORM[1] > BIGNUM / CMAX
+                    TEMP = CMAX / BIGNUM
+                    X[1, 1] = TEMP*X[1, 1]
+                    X[2, 1] = TEMP*X[2, 1]
+                    X[1, 2] = TEMP*X[1, 2]
+                    X[2, 2] = TEMP*X[1, 2]                     
+                    XNORM[1] = TEMP*XNORM[1]
+                    SCALE = TEMP*SCALE
                 end
-                WORK[J-1+N] = X[1, 1]
-                WORK[J+N] = X[2, 1]
-                WORK[J-1+N2] = X[1, 2]
-                WORK[J+N2] = X[2, 2]
-        # *
-        # *                    Update the right-hand side
-        # *
-                CALL DAXPY( J-2, -X[1, 1], T[1, J-1 ), 1,
-        $                           WORK[1+N], 1 )
-                CALL DAXPY( J-2, -X[2, 1], T[1, J], 1,
-        $                           WORK[1+N], 1 )
-                CALL DAXPY( J-2, -X[1, 2], T[1, J-1 ), 1,
-        $                           WORK[1+N2], 1 )
-                CALL DAXPY( J-2, -X[2, 2], T[1, J], 1,
-        $                           WORK[1+N2], 1 )
             end
-        end
-# 90          CONTINUE
-# *
-# *              Copy the vector x or Q*x to VR and normalize.
-# *
-        if !OVER THEN
-            CALL DCOPY( KI, WORK[1+N], 1, VR[1, IS-1], 1 )
-            CALL DCOPY( KI, WORK[1+N2], 1, VR[1, IS], 1 )
-
-            EMAX = ZERO
-            for K = 1 : KI
-                EMAX = max( EMAX, abs( VR[K, IS-1] ) + abs( VR[K, IS] ) )
-            end
-        # 100             CONTINUE
-
-            REMAX = ONE / EMAX
-            CALL DSCAL( KI, REMAX, VR[1, IS-1], 1 )
-            CALL DSCAL( KI, REMAX, VR[1, IS], 1 )
-
-            for K = KI + 1 : N
-                VR[K, IS-1] = ZERO
-                VR[K, IS] = ZERO
-            end
-    # 110             CONTINUE
-
-        else
-    #                 if KI > 2
-    #                     CALL DGEMV( 'N', N, KI-2, ONE, VR, LDVR,
-    # $                           WORK[1+N], 1, WORK[KI-1+N],
-    # $                           VR[1, KI-1], 1 )
-    #                     CALL DGEMV( 'N', N, KI-2, ONE, VR, LDVR,
-    # $                           WORK[1+N2], 1, WORK[KI+N2],
-    # $                           VR[1, KI], 1 )
-    #                 else
-    #                     CALL DSCAL( N, WORK[KI-1+N], VR[1, KI-1], 1 )
-    #                     CALL DSCAL( N, WORK[KI+N2], VR[1, KI], 1 )
-    #                 end
-
-    #                 EMAX = ZERO
-    #                 for K = 1 : N
-    #                     EMAX = max( EMAX, abs( VR[K, KI-1] ) + abs( VR[K, KI] ) )
-    #                 end
-    # # 120             CONTINUE
-    #                 REMAX = ONE / EMAX
-    #                 CALL DSCAL( N, REMAX, VR[1, KI-1], 1 )
-    #                 CALL DSCAL( N, REMAX, VR[1, KI], 1 )
         end
     end
 
-    IS = IS - 1
-    if IP != 0
-        IS = IS - 1
-    end
-    # 130       CONTINUE
-    if IP == 1
-        IP = 0
-    end
-    if IP == -1
-        IP = 1
-    end
-# 140    CONTINUE
+    return true
+
+# End of DLALN2
 end
+
+function DLADIV(A, B, C, D, P, Q)
+
+    if abs( D ) < abs( C )
+        E = D / C
+        F = C + D*E
+        P = ( A+B*E ) / F
+        Q = ( B-A*E ) / F
+    else
+        E = C / D
+        F = D + C*E
+        P = ( B+A*E ) / F
+        Q = ( -A+B*E ) / F
+    end
 
 end
