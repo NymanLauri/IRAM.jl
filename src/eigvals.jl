@@ -352,12 +352,12 @@ function backward_subst!(R::AbstractMatrix, y::AbstractVector)
     # R[1:n-1,1:n-1]*x[1:n-1]=-R[1:n,n]
     n = size(R,1)
 
-    for i = n-1 : -1 : 1
-        R[i,1:i] ./= R[i,i]
-        y[i] ./= R[i,i]
-        for k = i-1 : -1 : 1
-            R[k,1:i] .-= R[i,1:i].*R[k,i]
-            y[k] .-= y[i]*R[k,i]
+    @inbounds for i = n-1 : -1 : 1
+        R[i,1:i] /= R[i,i]
+        y[i] /= R[i,i]
+        @inbounds for k = i-1 : -1 : 1
+            R[k,1:i] .-= view(R, i, 1:i) * R[k,i]
+            y[k] -= y[i]*R[k,i]
         end
     end
 end
