@@ -1,6 +1,6 @@
 using Test
 
-using IRAM: eigvalues, local_schurfact!
+using IRAM: eigvalues, local_schurfact!, backward_subst!
 
 @testset "Schur factorization" begin
     let
@@ -125,4 +125,21 @@ using IRAM: eigvalues, local_schurfact!
             @test λs ≈ sort!(eigvals(H), by=abs, rev=true)
         end
     end
+end
+
+@testset "Backard subsitution" begin
+
+    # Test whether backward substitution works
+    let  
+        for T in (Float64, ComplexF64)       
+            R = triu(rand(T, 10,10))
+            R_copy = copy(R)
+            y = rand(T, 10)
+            y_ans = R\y
+            backward_subst!(R, y)
+        
+            @test R_copy*y_ans ≈ y
+        end
+    end
+    
 end
