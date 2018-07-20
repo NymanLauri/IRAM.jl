@@ -347,16 +347,16 @@ function schur_to_eigvec(R::AbstractMatrix{TR}) where {TR}
 
 end
 
-function backward_subst!(R::AbstractMatrix, y::AbstractVector)
+function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ) where{T}
 
     n = size(R,1)
 
     @inbounds for i = n : -1 : 1
-        y[i] /= R[i,i]
-        R[i,1:i] /= R[i,i]
+        y[i] /= R[i,i] - λ
+        # R[i,i] = one(T)
         @inbounds for k = i-1 : -1 : 1
             y[k] -= y[i]*R[k,i]
-            R[k,1:i] .-= view(R, i, 1:i) * R[k,i]    
+            # R[k,i] = zero(T)
         end
     end
 end
