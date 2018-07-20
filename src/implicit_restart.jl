@@ -7,7 +7,7 @@ where the Schur vectors corresponding to smallest eigenvalues are removed.
 function implicit_restart!(arnoldi::Arnoldi{T}, λs, min = 5, max = 30, active = 1, V_new = Matrix{T}(undef, size(arnoldi.V,1),min)) where {T<:Real}
     # Real arithmetic
     V, H = arnoldi.V, arnoldi.H
-    Q = Matrix{T}(I, max, max)
+    Q = Matrix{T}(I, max+1, max+1)
 
     m = max
 
@@ -36,7 +36,7 @@ end
 function implicit_restart!(arnoldi::Arnoldi{T}, λs, min = 5, max = 30, active = 1, V_new = Matrix{T}(undef, size(arnoldi.V,1),min)) where {T}
     # Complex arithmetic
     V, H = arnoldi.V, arnoldi.H
-    Q = Matrix{T}(I, max, max)
+    Q = Matrix{T}(I, max+1, max+1)
 
     m = max
 
@@ -88,6 +88,10 @@ function single_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Tv, Q::Abstrac
     @inbounds H[n, n - 1] = H[n + 1, n - 1]
     @inbounds H[n + 1, n - 1] = zero(Tv)
 
+    # Update Q with the last rotation
+    Q[1:max+1, max] .= 0
+    Q[max+1,max] = 1
+    
     return H
 end
 
@@ -145,6 +149,10 @@ function double_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Complex, Q::Ab
         # Zero out the off-diagonal guys
         H[n    , n - 2] = zero(Tv)
         H[n + 1, n - 2] = zero(Tv)
+
+        # Update Q with the last rotation
+        Q[1:max+1, max-1:max] .= 0
+        Q[max+1, max-1] = 1
     end
 
     @inbounds H[n + 1, n - 1] = zero(Tv)

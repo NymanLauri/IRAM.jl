@@ -37,7 +37,7 @@ end
     # Real arithmetic
     for i = 1 : 50
         H, λs, μ = generate_real_H_with_real_eigs(n, Float64)
-        Q = Matrix{Float64}(I, n, n)
+        Q = Matrix{Float64}(I, n+1, n+1)
         # H_copy = copy(H)
 
         single_shift!(H, 1, n, μ, Q)
