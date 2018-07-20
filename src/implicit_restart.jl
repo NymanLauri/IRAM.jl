@@ -87,10 +87,6 @@ function single_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Tv, Q::Abstrac
     # Do the last Given's rotation by hand (assuming exact shifts!)
     @inbounds H[n, n - 1] = H[n + 1, n - 1]
     @inbounds H[n + 1, n - 1] = zero(Tv)
-
-    # Update Q with the last rotation
-    Q[1:max+1, max] .= 0
-    Q[max+1,max] = 1
     
     return H
 end
@@ -150,9 +146,6 @@ function double_shift!(H_whole::AbstractMatrix{Tv}, min, max, μ::Complex, Q::Ab
         H[n    , n - 2] = zero(Tv)
         H[n + 1, n - 2] = zero(Tv)
 
-        # Update Q with the last rotation
-        Q[1:max+1, max-1:max] .= 0
-        Q[max+1, max-1] = 1
     end
 
     @inbounds H[n + 1, n - 1] = zero(Tv)
