@@ -24,7 +24,8 @@ function restarted_arnoldi(A::AbstractMatrix{T}, min = 5, max = 30, nev = min, �
         Q = Matrix{T}(I, n, n)
         H_copy = copy(view(arnoldi.H, active:max, active:max))
         local_schurfact!(H_copy, Q)
-        λs = sort!(eigvalues(H_copy), by = abs, rev = true)
+        # λs = sort!(eigvalues(H_copy), by = abs, rev = true)
+        λs = eigvalues(H_copy)
 
         y = Vector{T}(undef,n)
         res = Vector{Float64}(undef,n)
