@@ -120,7 +120,7 @@ using LinearAlgebra
             end
 
             # Test that the partial Schur decomposition relation holds
-            @test norm(Q*H*Q' - H_copy) < 100eps()
+            @test norm(Q*H*Q' - H_copy) < 1000eps()
             
             # Test that the eigenvalues of H are the same before and after transformation
             @test λs ≈ sort!(eigvals(H), by=abs, rev=true)
@@ -147,17 +147,38 @@ end
 
     # Test whether the eigenvector comes out properly
     let
-        R = triu(rand(10,10))
-        for i = 2:10
+        for T in (Float64,ComplexF64)
+            R = triu(rand(T, 10,10))
+            for i = 2:10
+                R_small = copy(R[1:i-1,1:i-1])
+                λs, vs = eigen(R)
+                y = -R[1:i-1,i]
+
+                x = (R_small-I*R[i,i]) \ y
+
+                backward_subst!(R_small, y, R[i,i])
+                eigvec = [y; 1.0; zeros(Float64, 10-i)] / norm([y; 1.0; zeros(Float64, 10-i)])
+                
+                @test x ≈ y
+                @test abs.(vs[:,i]) ≈ abs.(eigvec)
+            end
+        end
+    end
+
+    #Real arithmetic with conjugate eigvals
+    let
+        for i = 6:10
+            R = triu(rand(10,10))
+            R[i-4,i-5] = rand(1)[1]
+            R[i-2,i-3] = rand(1)[1]
             R_small = copy(R[1:i-1,1:i-1])
             λs, vs = eigen(R)
             y = -R[1:i-1,i]
-
             x = (R_small-I*R[i,i]) \ y
 
             backward_subst!(R_small, y, R[i,i])
             eigvec = [y; 1.0; zeros(Float64, 10-i)] / norm([y; 1.0; zeros(Float64, 10-i)])
-            
+                
             @test x ≈ y
             @test vs[:,i] ≈ eigvec
         end

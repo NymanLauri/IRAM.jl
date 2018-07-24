@@ -369,27 +369,30 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ) where{T<:R
     # λ
     i = n
     while i > 1
-
         if R[i,i-1] > 1e-10
             det = (R[i-1,i-1]-λ)*(R[i,i]-λ) - R[i,i-1]*R[i-1,i]
-            A_inv = [R[i,i]-λ -R[i-1,i]; -R[i,i-1] R[i-1,i-1]-λ] / det
-            M = Matrix(I,n,n)
-            M[i-1:i,i-1:i] .= A_inv
-            lmul!(M,R)
-            lmul!(A_inv,view(y,i-1:i))
-            # Make optimal
-            # @inbounds for j = 1:size(R, 1)
-                # a11 = A_inv[1,1] * R[i,j] + A_inv[1,2] * R[i,j+1]
-                
-                # R[i,j] = h_min
-                # R[i + 1,j] = h_max
-            # end
+            # A_inv = [R[i,i]-λ -R[i-1,i]; -R[i,i-1] R[i-1,i-1]-λ] / det
+            
+            # a1 = A_inv[1,1] * y[i-1] + A_inv[1,2] * y[i]
+            # a2 = A_inv[2,1] * y[i-1] + A_inv[2,2] * y[i]
+            a1 = ( (R[i,i]-λ) * y[i-1] - R[i-1,i] * y[i]) / det
+            a2 = (-R[i,i-1] * y[i-1] + (R[i-1,i-1]-λ) * y[i]) / det
+            y[i-1] = a1
+            y[i] = a2
+
+            # R[i-1,i-1] = one(T)
+            # R[i,i] = one(T)
+            # R[i-1,i] = zero(T)
+            # R[i,i-1] = zero(T)
+
+            # display(A_inv*(R[i-1:i,i-1:i]-λ*I))
+
             @inbounds for k = i-2 : -1 : 1
-                y[k] -= y[i-1]*R[k,i]
-                R[k,i-1] = zero(T)
+                y[k] -= y[i-1]*R[k,i-1]
+                # R[k,i-1] = zero(T)
 
                 y[k] -= y[i]*R[k,i]
-                R[k,i] = zero(T)
+                # R[k,i] = zero(T)
             end
             i-=2
         else
@@ -399,6 +402,16 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ) where{T<:R
                 y[k] -= y[i]*R[k,i]
                 # R[k,i] = zero(T)
             end
+            i-=1
         end
+    end
+    if i==1
+        y[i] /= R[i,i] - λ
+        # R[i,i] = one(T)
+        @inbounds for k = i-1 : -1 : 1
+            y[k] -= y[i]*R[k,i]
+            # R[k,i] = zero(T)
+        end
+        i-=1
     end
 end
