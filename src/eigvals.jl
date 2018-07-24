@@ -37,7 +37,7 @@ local_schurfact!(A, Q; kwargs...) = local_schurfact!(A, Q, 1, size(A, 1); kwargs
 
 function local_schurfact!(H::AbstractMatrix{T}, Q::AbstractMatrix{T}, start, stop; tol = eps(real(T)), maxiter = 100*size(H, 1)) where {T<:Real}
     to = stop
-
+    
     # iteration count
     iter = 0
 
@@ -357,6 +357,48 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ) where{T}
         @inbounds for k = i-1 : -1 : 1
             y[k] -= y[i]*R[k,i]
             # R[k,i] = zero(T)
+        end
+    end
+end
+
+function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ) where{T<:Real}
+
+    n = size(R,1)
+    # det = A[1,1]*A[2,2] - A[2,1]*A[1,2]
+    # A_inv = [A[2,2] -A[1,2]; -A[2,1] A[1,1]] / det
+    # λ
+    i = n
+    while i > 1
+
+        if R[i,i-1] > 1e-10
+            det = (R[i-1,i-1]-λ)*(R[i,i]-λ) - R[i,i-1]*R[i-1,i]
+            A_inv = [R[i,i]-λ -R[i-1,i]; -R[i,i-1] R[i-1,i-1]-λ] / det
+            M = Matrix(I,n,n)
+            M[i-1:i,i-1:i] .= A_inv
+            lmul!(M,R)
+            lmul!(A_inv,view(y,i-1:i))
+            # Make optimal
+            # @inbounds for j = 1:size(R, 1)
+                # a11 = A_inv[1,1] * R[i,j] + A_inv[1,2] * R[i,j+1]
+                
+                # R[i,j] = h_min
+                # R[i + 1,j] = h_max
+            # end
+            @inbounds for k = i-2 : -1 : 1
+                y[k] -= y[i-1]*R[k,i]
+                R[k,i-1] = zero(T)
+
+                y[k] -= y[i]*R[k,i]
+                R[k,i] = zero(T)
+            end
+            i-=2
+        else
+            y[i] /= R[i,i] - λ
+            # R[i,i] = one(T)
+            @inbounds for k = i-1 : -1 : 1
+                y[k] -= y[i]*R[k,i]
+                # R[k,i] = zero(T)
+            end
         end
     end
 end
