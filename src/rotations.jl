@@ -65,7 +65,7 @@ Applies the Givens rotation to Hessenberg matrix H from the left (in-place).
 """
 function lmul!(G::Givens, H::Hessenberg)
     @inbounds for j in G.i:size(H, 2)
-        h_min = G.c .* H[G.i,j] + G.s * H[G.i + 1,j]
+        h_min = G.c * H[G.i,j] + G.s * H[G.i + 1,j]
         h_max = -conj(G.s) * H[G.i,j] + G.c * H[G.i + 1,j]
         H[G.i,j] = h_min
         H[G.i + 1,j] = h_max
@@ -75,7 +75,7 @@ end
 
 function lmul!(G::Givens, H::AbstractMatrix)
     @inbounds for j in 1:size(H, 2)
-        h_min = G.c .* H[G.i,j] + G.s * H[G.i + 1,j]
+        h_min = G.c * H[G.i,j] + G.s * H[G.i + 1,j]
         h_max = -conj(G.s) * H[G.i,j] + G.c * H[G.i + 1,j]
         H[G.i,j] = h_min
         H[G.i + 1,j] = h_max
