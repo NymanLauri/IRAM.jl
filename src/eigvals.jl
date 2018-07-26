@@ -330,8 +330,12 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=1e-10)
 
     @inbounds for i = n : -1 : 1
         if abs(R[i,i] - λ) < tol
-            y[i] /= tol
-            y .*= tol
+            if abs(y[i]) < tol
+                y[i] = zero(T)
+            else
+                y[i] /= tol
+                y .*= tol
+            end
         else
             y[i] /= R[i,i] - λ
         end
@@ -364,8 +368,12 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=1e-10)
         else
             # @show abs(R[i,i] - λ)
             if abs(R[i,i] - λ) < tol
-                y[i] /= tol
-                y .*= tol
+                if abs(y[i]) < tol
+                    y[i] = zero(T)
+                else
+                    y[i] /= tol
+                    y .*= tol
+                end
                 # temp = y[i]
                 # y .*= tol
                 # y .*= 0
@@ -381,8 +389,12 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=1e-10)
     end
     if i==1
         if abs(R[i,i] - λ) < tol
-            y[i] /= tol
-            y .*= tol
+            if abs(y[i]) < tol
+                y[i] = zero(T)
+            else
+                y[i] /= tol
+                y .*= tol
+            end
         else
             y[i] /= R[i,i] - λ
         end
