@@ -324,7 +324,7 @@ function double_shift_schur!(H::AbstractMatrix{Tv}, min, max, μ::Complex, Q::Ab
     H
 end
 
-function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=1e-10) where{T}
+function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=100eps(real(T))) where{T}
 
     n = size(R,1)
 
@@ -347,7 +347,7 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=1e-10)
     end
 end
 
-function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=1e-10) where{T<:Real}
+function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=100eps(T)) where{T<:Real}
 
     n = size(R,1)
     i = n
@@ -406,28 +406,91 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=1e-10)
 end
 
 
-function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, A::AbstractMatrix{T}, tol=1e-10) where{T<:Real}
+function backward_subst!(R::AbstractMatrix{TR}, y::AbstractVector{Ty}, A::AbstractMatrix{TR}, tol=100eps(TR)) where{TR<:Real, Ty}
 
     n = size(R,1)
+    y .= zero(Ty)
 
     det = A[1,1]*A[2,2] - A[2,1]*A[1,2]
-    tr = A[1,1]*A[2,2]
-    λ = 0.5*(tr + sqrt(tr*tr - 4*det))
-    # A_inv = [A[2,2] -A[1,2]; -A[2,1] A[1,1]] / det
-    # λ
-    # 
-    # R = [B C;
-    #      0 D]
-    # [xr xi]
+    tr = A[1,1] + A[2,2]
+    λ = 0.5*(tr + sqrt(Complex(tr*tr - 4*det)))
 
-    # A = D - λ*I
+    A = A - λ*I
+
     # A x = 0
-    # A [x1; 1] = 0
-    # A[:,1] * x1 + A[:,2] = 0
-    x1 = -A[1,2] / A[1,1]
-    x = [x1; 1]
-    xr = real(x)
-    xi = imag(x)  
+    # A [x1; x2] = 0
+    # A[:,1] * x1 + A[:,2] * x2 = 0
+    if iszero(A[1,1])
+        if iszero(A[1,2])
+            @assert !iszero(A[2,1])
+            x1 = -A[2,2] / A[2,1]
+            x = [x1; one(Ty)]
+        else
+            @assert iszero(A[2,1])
+            x = [one(Ty); zero(Ty)]
+        end
+    else
+        x1 = -A[1,2] / A[1,1]
+        x = [x1; one(Ty)]
+    end
 
+    y[n-1:n] .= x
 
+    @inbounds for k = n-2 : -1 : 1
+        y[k] -= y[n-1]*R[k,n-1]
+        y[k] -= y[n]*R[k,n]
+    end
+
+    i = n - 2
+    while i > 1
+        if !is_offdiagonal_small(R, i-1, tol)
+            det = (R[i-1,i-1]-λ)*(R[i,i]-λ) - R[i,i-1]*R[i-1,i]
+            a1 = ((R[i,i]-λ) * y[i-1] - R[i-1,i] * y[i]) / det
+            a2 = (-R[i,i-1] * y[i-1] + (R[i-1,i-1]-λ) * y[i]) / det
+            y[i-1] = a1
+            y[i] = a2
+
+            @inbounds for k = i-2 : -1 : 1
+                y[k] -= y[i-1]*R[k,i-1]
+                y[k] -= y[i]*R[k,i]
+            end
+            i-=2
+        else
+            # @show abs(R[i,i] - λ)
+            if abs(R[i,i] - λ) < tol
+                if abs(y[i]) < tol
+                    y[i] = zero(Ty)
+                else
+                    y[i] /= tol
+                    y[:]*= tol
+                end
+                # temp = y[i]
+                # y[:]*= tol
+                # y[:]*= 0
+                # y[i] = temp
+            else
+                y[i] /= R[i,i] - λ
+            end
+            @inbounds for k = i-1 : -1 : 1
+                y[k] -= y[i]*R[k,i]
+            end
+            i-=1
+        end
+    end
+    if i==1
+        if abs(R[i,i] - λ) < tol
+            if abs(y[i]) < tol
+                y[i] = zero(Ty)
+            else
+                y[i] /= tol
+                y[:].*= tol
+            end
+        else
+            y[i] /= R[i,i] - λ
+        end
+        @inbounds for k = i-1 : -1 : 1
+            y[k] -= y[i]*R[k,i]
+        end
+        i-=1
+    end
 end
