@@ -13,6 +13,7 @@ struct PartialSchur{TQ,TR}
     k::Int
 end
 
+include("targets.jl")
 include("rotations.jl")
 include("expansion.jl")
 include("implicit_restart.jl")
