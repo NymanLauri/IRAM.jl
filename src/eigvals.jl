@@ -324,7 +324,7 @@ function double_shift_schur!(H::AbstractMatrix{Tv}, min, max, μ::Complex, Q::Ab
     H
 end
 
-function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=100eps(real(T))) where{T}
+function backward_subst!(R::AbstractMatrix{T}, λ::Number, y::AbstractVector, tol=100eps(real(T))) where{T}
 
     n = size(R,1)
 
@@ -347,7 +347,7 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=100eps
     end
 end
 
-function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=100eps(T)) where{T<:Real}
+function backward_subst!(R::AbstractMatrix{T}, λ::Number, y::AbstractVector, tol=100eps(T)) where{T<:Real}
 
     n = size(R,1)
     i = n
@@ -406,35 +406,22 @@ function backward_subst!(R::AbstractMatrix{T}, y::AbstractVector, λ, tol=100eps
 end
 
 
-function backward_subst!(R::AbstractMatrix{TR}, y::AbstractVector{Ty}, A::AbstractMatrix{TR}, tol=100eps(TR)) where{TR<:Real, Ty}
+function backward_subst!(R::AbstractMatrix{TR}, y::AbstractVector{Ty}, tol::Number=100eps(TR)) where{TR<:Real, Ty}
 
     n = size(R,1)
     y .= zero(Ty)
+
+    A = view(R, n-1:n, n-1:n)
 
     det = A[1,1]*A[2,2] - A[2,1]*A[1,2]
     tr = A[1,1] + A[2,2]
     λ = 0.5*(tr + sqrt(Complex(tr*tr - 4*det)))
 
-    A = A - λ*I
+    x1 = -A[1,2] / (A[1,1] - λ)
+    @assert isapprox(x1, -(A[2,2] - λ) / A[2,1])
 
-    # A x = 0
-    # A [x1; x2] = 0
-    # A[:,1] * x1 + A[:,2] * x2 = 0
-    if iszero(A[1,1])
-        if iszero(A[1,2])
-            @assert !iszero(A[2,1])
-            x1 = -A[2,2] / A[2,1]
-            x = [x1; one(Ty)]
-        else
-            @assert iszero(A[2,1])
-            x = [one(Ty); zero(Ty)]
-        end
-    else
-        x1 = -A[1,2] / A[1,1]
-        x = [x1; one(Ty)]
-    end
-
-    y[n-1:n] .= x
+    y[n-1] = x1
+    y[n] = one(Ty)
 
     @inbounds for k = n-2 : -1 : 1
         y[k] -= y[n-1]*R[k,n-1]
